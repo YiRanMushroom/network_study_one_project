@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::*;
 
-#[derive(Debug, PartialEq, Clone, PartialOrd, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, PartialOrd, Default, Serialize, Deserialize)]
 pub enum InputToken {
+    #[default]
+    None,
     General(String),
     String(String),
     Integer(i64),
