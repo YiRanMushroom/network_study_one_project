@@ -123,6 +123,7 @@ async fn main() {
                     }
                     Ok(Message::Close(_)) => {
                         println!("Connection closed: remote host closed the connection");
+                        println!("Press any key to exit");
                         break;
                     }
                     Ok(_) => {
