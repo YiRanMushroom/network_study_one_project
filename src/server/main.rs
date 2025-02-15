@@ -115,6 +115,9 @@ async fn main() {
                                         println!("Failed to send message to client: {}", e));
 
                                 } else {
+                                    if requester_essential.username.is_some() {
+                                        username_to_uuid_map.remove(&requester_essential.username.clone().unwrap());
+                                    }
 
                                     username_to_uuid_map.insert(username.clone(), requester_uuid);
 
@@ -150,6 +153,15 @@ async fn main() {
                                 let user_essential = uuid_to_user_essential_map
                                     .get(&requester_uuid)
                                     .expect("Failed to find user essential");
+
+                                if user_essential.username.is_none() {
+                                    user_essential.main_to_thread_tx.send(MainToThreadsMessage::SendToClient(
+                                    ServerToClientMessage::Response(Err("You must set a username first!".to_string()))))
+                                    .await
+                                    .unwrap_or_else(|e|
+                                        println!("Failed to send message to client: {}", e));
+                                    continue;
+                                }
 
                                 let recipient_uuid = username_to_uuid_map.get(&username);
 
@@ -187,7 +199,9 @@ async fn main() {
                     Ok(ThreadsToMainMessage::ConnectionClosed(uuid)) => {
                         let user_essential = uuid_to_user_essential_map.remove(&uuid)
                             .expect("Failed to find user essential");
-                        username_to_uuid_map.remove(&user_essential.username.unwrap());
+                        if user_essential.username.is_some() {
+                            username_to_uuid_map.remove(&user_essential.username.unwrap());
+                        }
                     }
 
                     Err(e) => {
@@ -247,7 +261,7 @@ async fn handle_connection(
                             Some(MainToThreadsMessage::Shutdown) => {
                                 println!("Shutting down connection {}", connection_id);
                                 write.send(Message::Close(None)).await.expect("Failed to send close message");
-                                break;
+                                return;
                             }
                             Some(MainToThreadsMessage::SendToClient(message)) => {
                                 println!("Sending message to client: {:?}", message);
