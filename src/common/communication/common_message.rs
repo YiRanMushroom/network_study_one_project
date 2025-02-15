@@ -16,5 +16,5 @@ pub enum ServerToClientMessage {
     None,
     TextFrom(String, String),
     Usernames(Vec<String>),
-    IsSuccess(bool),
+    Response(Result<String, String>),
 }

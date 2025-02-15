@@ -16,10 +16,7 @@ use uuid::Uuid;
 
 #[tokio::main]
 async fn main() {
-    // let addr = "127.0.0.1:8080";
     let mut input = String::new();
-    // let listener = TcpListener::bind(&addr)
-    //     .await.expect("Failed to bind");
     println!("Enter the address to bind to: ");
     io::stdin()
         .read_line(&mut input)
@@ -69,6 +66,7 @@ async fn main() {
     struct UserEssential {
         uuid: Uuid,
         main_to_thread_tx: tokio::sync::mpsc::Sender<MainToThreadsMessage>,
+        username: Option<String>,
     }
 
     let mut uuid_to_user_essential_map: std::collections::HashMap<Uuid, UserEssential> =
@@ -76,63 +74,127 @@ async fn main() {
 
     loop {
         tokio::select! {
-                Ok((stream, _)) = listener.accept() => {
-                    let connection_id = Uuid::new_v4();
-                    let (main_to_thread_tx, main_to_thread_rx) = tokio::sync::mpsc::channel(1);
-                    uuid_to_user_essential_map.insert(connection_id, UserEssential {
-                        uuid : connection_id,
-                        main_to_thread_tx,
-                    });
-                    tokio::spawn(handle_connection(stream, connection_id,
-                        main_to_thread_rx, thread_to_main_tx.clone()));
-                },
+            Ok((stream, _)) = listener.accept() => {
+                let connection_id = Uuid::new_v4();
+                let (main_to_thread_tx, main_to_thread_rx) = tokio::sync::mpsc::channel(1);
+                uuid_to_user_essential_map.insert(connection_id, UserEssential {
+                    uuid : connection_id,
+                    main_to_thread_tx,
+                    username : None,
+                });
+                tokio::spawn(handle_connection(stream, connection_id,
+                    main_to_thread_rx, thread_to_main_tx.clone()));
+            },
 
-                message = thread_to_main_rx.recv() => {
-                    match message {
-                        Ok(ThreadsToMainMessage::Shutdown) => {
-                            for (uuid, user_essential) in uuid_to_user_essential_map.iter() {
-                                user_essential.main_to_thread_tx.send(MainToThreadsMessage::Shutdown).await.expect("Failed to send shutdown signal");
-                            }
-                            println!("Shutting down server");
-                            break;
+            message = thread_to_main_rx.recv() => {
+                match message {
+                    Ok(ThreadsToMainMessage::Shutdown) => {
+                        for (uuid, user_essential) in uuid_to_user_essential_map.iter() {
+                            user_essential.main_to_thread_tx.send(MainToThreadsMessage::Shutdown)
+                                .await.expect("Failed to send shutdown signal");
                         }
-                        Ok(ThreadsToMainMessage::ReceivedFromClient(message, name)) => {
-                            println!("Received message from {}: {:?}", name, message);
-                            match message {
-                                ClientToServerMessage::SetUsername(username) => {
-                                    let user_essential = uuid_to_user_essential_map.get(&Uuid::parse_str(&name).expect("Failed to parse UUID")).expect("Failed to find user essential");
-                                    if username_to_uuid_map.contains_key(&username) {
-                                        user_essential.main_to_thread_tx.send(MainToThreadsMessage::SendToClient(ServerToClientMessage::IsSuccess(false), name)).await.expect("Failed to send message to client");
-                                    } else {
-                                        username_to_uuid_map.insert(username.clone(), Uuid::parse_str(&name).expect("Failed to parse UUID"));
-                                        user_essential.main_to_thread_tx.send(MainToThreadsMessage::SendToClient(ServerToClientMessage::IsSuccess(true), name)).await.expect("Failed to send message to client");
-                                    }
+                        println!("Shutting down server");
+                        break;
+                    }
+                    Ok(ThreadsToMainMessage::ReceivedFromClient(message, requester_uuid)) => {
+
+                        println!("Received message from {}: {:?}", requester_uuid, message);
+
+                        match message {
+
+                            ClientToServerMessage::SetUsername(username) => {
+                                let requester_essential : &mut UserEssential =
+                                    uuid_to_user_essential_map.get_mut(&requester_uuid)
+                                    .expect("Failed to find user essential");
+
+                                if username_to_uuid_map.contains_key(&username) {
+                                    requester_essential.main_to_thread_tx.send(MainToThreadsMessage::SendToClient(
+                                    ServerToClientMessage::Response(Err("Username already exists!".to_string()))))
+                                    .await
+                                    .unwrap_or_else(|e|
+                                        println!("Failed to send message to client: {}", e));
+
+                                } else {
+
+                                    username_to_uuid_map.insert(username.clone(), requester_uuid);
+
+                                    (*requester_essential).username = Some(username.clone());
+
+                                    requester_essential.main_to_thread_tx.send(MainToThreadsMessage::SendToClient(
+                                    ServerToClientMessage::Response(Ok(format!("Set username {} successfully!",
+                                        username)))))
+                                    .await
+                                    .unwrap_or_else(|e|
+                                        println!("Failed to send message to client: {}", e));
                                 }
-                                ClientToServerMessage::GetUsernames => {
-                                    let mut usernames = Vec::new();
-                                    for (username, _) in username_to_uuid_map.iter() {
-                                        usernames.push(username.clone());
-                                    }
-                                    let user_essential = uuid_to_user_essential_map.get(&Uuid::parse_str(&name).expect("Failed to parse UUID")).expect("Failed to find user essential");
-                                    user_essential.main_to_thread_tx.send(MainToThreadsMessage::SendToClient(ServerToClientMessage::Usernames(usernames), name)).await.expect("Failed to send message to client");
+                            }
+
+                            ClientToServerMessage::GetUsernames => {
+                                let mut usernames = Vec::new();
+
+                                for (username, _) in username_to_uuid_map.iter() {
+                                    usernames.push(username.clone());
                                 }
-                                ClientToServerMessage::TextTo(username, text) => {
-                                    let user_essential = uuid_to_user_essential_map.get(&Uuid::parse_str(&name).expect("Failed to parse UUID")).expect("Failed to find user essential");
-                                    let recipient_uuid = username_to_uuid_map.get(&username).expect("Failed to find recipient UUID");
-                                    let recipient_user_essential = uuid_to_user_essential_map.get(recipient_uuid).expect("Failed to find recipient user essential");
-                                    recipient_user_essential.main_to_thread_tx.send(MainToThreadsMessage::SendToClient(ServerToClientMessage::TextFrom(username, text), recipient_uuid.to_string())).await.expect("Failed to send message to client");
+
+                                let user_essential = uuid_to_user_essential_map.get(&requester_uuid)
+                                    .expect("Failed to find user essential");
+
+                                user_essential.main_to_thread_tx
+                                    .send(MainToThreadsMessage::SendToClient(ServerToClientMessage::Usernames(usernames)))
+                                    .await
+                                    .expect("Failed to send message to client");
+                            }
+
+                            ClientToServerMessage::TextTo(username, text) => {
+
+                                let user_essential = uuid_to_user_essential_map
+                                    .get(&requester_uuid)
+                                    .expect("Failed to find user essential");
+
+                                let recipient_uuid = username_to_uuid_map.get(&username);
+
+                                if recipient_uuid.is_none() {
+                                    user_essential.main_to_thread_tx.send(MainToThreadsMessage::SendToClient(
+                                    ServerToClientMessage::Response(Err("Recipient does not exist!".to_string()))))
+                                    .await
+                                    .unwrap_or_else(|e|
+                                        println!("Failed to send message to client: {}", e));
+                                    continue;
                                 }
+
+                                let recipient_uuid = recipient_uuid.unwrap();
+
+                                let recipient_user_essential = uuid_to_user_essential_map.get(recipient_uuid)
+                                    .expect("Failed to find recipient user essential");
+
+                                recipient_user_essential.main_to_thread_tx.send(MainToThreadsMessage::SendToClient(
+                                    ServerToClientMessage::TextFrom(user_essential.username.clone().unwrap(), text)))
+                                    .await
+                                    .unwrap_or_else(|e|
+                                        println!("Failed to send message to client: {}", e));
+
+                                user_essential.main_to_thread_tx.send(MainToThreadsMessage::SendToClient(
+                                    ServerToClientMessage::Response(Ok(format!("Sent message to {}", username)))))
+                                    .await
+                                    .unwrap_or_else(|e|
+                                        println!("Failed to send message to client: {}", e));
+
+                            }
                             _ => {}
-                            }
-                        }
-                        Ok(ThreadsToMainMessage::RequestUsernames(name)) => {
-                            println!("Requesting usernames: {:?}", name);
-                        }
-                        Err(e) => {
-                            println!("Error: {}", e);
                         }
                     }
+
+                    Ok(ThreadsToMainMessage::ConnectionClosed(uuid)) => {
+                        let user_essential = uuid_to_user_essential_map.remove(&uuid)
+                            .expect("Failed to find user essential");
+                        username_to_uuid_map.remove(&user_essential.username.unwrap());
+                    }
+
+                    Err(e) => {
+                        println!("Error: {}", e);
+                    }
                 }
+            }
         }
     }
 }
@@ -145,6 +207,7 @@ async fn handle_connection(
 ) {
     match accept_async(stream).await {
         Ok(ws_stream) => {
+
             println!("New WebSocket connection: {}", connection_id);
 
             let (mut write, mut read) = ws_stream.split();
@@ -162,7 +225,7 @@ async fn handle_connection(
                                     Message::Text(text) => {
                                         let message : ClientToServerMessage = serde_json::from_str(&text)
                                             .expect("Failed to parse message");
-                                        thread_to_main_tx.send(ThreadsToMainMessage::ReceivedFromClient(message, connection_id.to_string())).expect("Failed to send message to main thread");
+                                        thread_to_main_tx.send(ThreadsToMainMessage::ReceivedFromClient(message, connection_id)).expect("Failed to send message to main thread");
                                     }
                                 _ => {
                                     println!("Received non-text message from connection {}", connection_id);
@@ -186,7 +249,7 @@ async fn handle_connection(
                                 write.send(Message::Close(None)).await.expect("Failed to send close message");
                                 break;
                             }
-                            Some(MainToThreadsMessage::SendToClient(message, _)) => {
+                            Some(MainToThreadsMessage::SendToClient(message)) => {
                                 println!("Sending message to client: {:?}", message);
                                 write.send(Message::Text(Utf8Bytes::from(serde_json::to_string(&message).expect("Failed to serialize message")))).await.expect("Failed to send message to client");
                             }
@@ -203,5 +266,9 @@ async fn handle_connection(
             );
         }
     }
+    thread_to_main_tx
+        .send(ThreadsToMainMessage::ConnectionClosed(connection_id))
+        .expect("Failed to send shutdown signal");
     println!("Connection {} closed", connection_id);
+    return;
 }
