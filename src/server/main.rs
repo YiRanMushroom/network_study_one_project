@@ -221,7 +221,6 @@ async fn handle_connection(
 ) {
     match accept_async(stream).await {
         Ok(ws_stream) => {
-
             println!("New WebSocket connection: {}", connection_id);
 
             let (mut write, mut read) = ws_stream.split();
