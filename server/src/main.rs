@@ -1,9 +1,9 @@
 mod channel_message;
 
 use crate::channel_message::{MainToThreadsMessage, ThreadsToMainMessage};
+use common::communication::common_message::{ClientToServerMessage, ServerToClientMessage};
+use common::logic::input_parser::{parse_input, InputToken};
 use futures_util::{SinkExt, StreamExt};
-use networking::communication::common_message::{ClientToServerMessage, ServerToClientMessage};
-use networking::logic::input_parser::{parse_input, InputToken};
 use std::io;
 use std::io::BufRead;
 use tokio::net::TcpListener;

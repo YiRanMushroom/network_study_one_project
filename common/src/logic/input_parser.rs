@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use std::*;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Clone, PartialOrd, Default, Serialize, Deserialize)]
 pub enum InputToken {

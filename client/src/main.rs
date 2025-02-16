@@ -1,6 +1,6 @@
 use futures_util::{SinkExt, StreamExt};
-use networking::communication::common_message::{ClientToServerMessage, ServerToClientMessage};
-use networking::logic::input_parser::{parse_input, InputToken};
+use common::communication::common_message::{ClientToServerMessage, ServerToClientMessage};
+use common::logic::input_parser::{parse_input, InputToken};
 use tokio::io;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio_tungstenite::connect_async;

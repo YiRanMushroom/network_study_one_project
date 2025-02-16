@@ -1,5 +1,5 @@
 use uuid::Uuid;
-use networking::communication::common_message::{ClientToServerMessage, ServerToClientMessage};
+use common::communication::common_message::{ClientToServerMessage, ServerToClientMessage};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub enum MainToThreadsMessage {
